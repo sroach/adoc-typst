@@ -41,7 +41,11 @@ jobs:
       - name: Create archive
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf "../../${{ matrix.archive_name }}" ${{ matrix.binary_name }}
+          tar czf "../../../${{ matrix.archive_name }}" ${{ matrix.binary_name }}
+
+      - name: Verify archive
+        run: |
+          ls -la ${{ matrix.archive_name }} || (echo "archive missing" && exit 1)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
