@@ -61,6 +61,8 @@ jobs:
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: dist
 
       - name: Create GitHub Release
         env:
@@ -69,6 +71,6 @@ jobs:
           gh release create ${{ github.ref_name }} \
             --title "Release ${{ github.ref_name }}" \
             --generate-notes \
-            adoc-typst-x86_64-linux.tar.gz/adoc-typst-x86_64-linux.tar.gz \
-            adoc-typst-x86_64-macos.tar.gz/adoc-typst-x86_64-macos.tar.gz \
-            adoc-typst-aarch64-macos.tar.gz/adoc-typst-aarch64-macos.tar.gz
+            dist/adoc-typst-x86_64-linux.tar.gz/adoc-typst-x86_64-linux.tar.gz \
+            dist/adoc-typst-x86_64-macos.tar.gz/adoc-typst-x86_64-macos.tar.gz \
+            dist/adoc-typst-aarch64-macos.tar.gz/adoc-typst-aarch64-macos.tar.gz
