@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: adoc-typst
+            archive_name: adoc-typst-x86_64-linux.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary_name: adoc-typst
+            archive_name: adoc-typst-x86_64-macos.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary_name: adoc-typst
+            archive_name: adoc-typst-aarch64-macos.tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create archive
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf "../../${{ matrix.archive_name }}" ${{ matrix.binary_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive_name }}
+          path: ${{ matrix.archive_name }}
+
+  create-release:
+    needs: build-release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --title "Release ${{ github.ref_name }}" \
+            --generate-notes \
+            adoc-typst-x86_64-linux.tar.gz/adoc-typst-x86_64-linux.tar.gz \
+            adoc-typst-x86_64-macos.tar.gz/adoc-typst-x86_64-macos.tar.gz \
+            adoc-typst-aarch64-macos.tar.gz/adoc-typst-aarch64-macos.tar.gz
