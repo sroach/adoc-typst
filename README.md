@@ -34,6 +34,16 @@ adoc-typst docs/basic.adoc --output output.typst
 adoc-typst input.adoc --attribute "icons=font" --output output.typst
 ```
 
+### Compile to PDF
+
+If `typst` is installed on your system, use `--pdf` to compile the generated Typst file to PDF automatically:
+
+```bash
+adoc-typst input.adoc --output output.typst --pdf
+```
+
+This will produce `output.pdf` alongside `output.typst`. If `typst` is not found on your PATH, an error message with installation instructions will be shown.
+
 ### Render custom `[docops,type]` macros remotely
 
 If your document contains custom Asciidoctor macros like `[docops,recipe]`, you can render them by pointing to a remote server that returns SVGs. The production DocOps server is available at `https://roach.gy/docops-ext/`:

@@ -69,6 +69,12 @@ fn main() -> Result<()> {
     }
 
     println!("Converted {} -> {}", cli.input, cli.output);
+
+    // Compile to PDF if --pdf flag is set
+    if cli.pdf {
+        compile_to_pdf(&cli.output)?;
+    }
+
     Ok(())
 }
 
@@ -182,4 +188,45 @@ fn clear_block_remote_macros(block: &mut Block) {
         }
         _ => {}
     }
+}
+
+/// Compiles the given `.typst` file to PDF using the `typst` command-line tool.
+fn compile_to_pdf(typst_file: &str) -> Result<()> {
+    // Determine the PDF output path (same as input, but with .pdf extension)
+    let pdf_file = Path::new(typst_file)
+        .with_extension("pdf")
+        .to_string_lossy()
+        .to_string();
+
+    // Check if `typst` is available
+    let typst_status = std::process::Command::new("which")
+        .arg("typst")
+        .output();
+
+    match typst_status {
+        Ok(output) if output.status.success() => {}
+        _ => {
+            eprintln!("[adoc-typst] Error: `typst` is not installed or not on PATH.");
+            eprintln!("[adoc-typst] Install Typst from https://typst.ai or via your package manager.");
+            process::exit(1);
+        }
+    }
+
+    println!("[adoc-typst] Compiling {} -> {}", typst_file, pdf_file);
+
+    let mut cmd = std::process::Command::new("typst");
+    cmd.arg("compile").arg(typst_file).arg(&pdf_file);
+
+    let output = cmd.output()?;
+
+    if output.status.success() {
+        println!("[adoc-typst] PDF generated: {}", pdf_file);
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("[adoc-typst] Typst compilation failed:");
+        eprintln!("{}", stderr);
+        process::exit(1);
+    }
+
+    Ok(())
 }

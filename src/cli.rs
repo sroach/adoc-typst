@@ -31,4 +31,8 @@ pub struct Cli {
     /// Document language for PDF/UA compliance (e.g., "en", "de", "fr")
     #[arg(long, default_value = "en")]
     pub lang: String,
+
+    /// Compile to PDF using `typst` (requires `typst` on PATH)
+    #[arg(long)]
+    pub pdf: bool,
 }
