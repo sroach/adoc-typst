@@ -1,4 +1,5 @@
 use crate::ir::blocks::{AdmonitionLevel, Block, ListItem};
+use crate::renderer::util::decode_html_entities;
 
 /// Renders a block to Typst syntax.
 pub fn render_block(block: &Block, pdf_ua: bool) -> String {
@@ -160,7 +161,8 @@ pub fn render_block(block: &Block, pdf_ua: bool) -> String {
         Block::Section(nested) => {
             let mut output = String::new();
             let prefix = "=".repeat(nested.level as usize + 1);
-            output.push_str(&format!("{} {}\n\n", prefix, nested.title));
+            let clean_title = strip_html_tags(&decode_html_entities(&nested.title));
+            output.push_str(&format!("{} {}\n\n", prefix, clean_title));
             for block in &nested.content {
                 output.push_str(&render_block(block, pdf_ua));
             }

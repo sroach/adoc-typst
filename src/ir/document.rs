@@ -4,9 +4,12 @@ use super::blocks::Block;
 #[derive(Debug, Clone)]
 pub struct Document {
     pub title: Option<String>,
-    pub author: Option<String>,
+    pub subtitle: Option<String>,
+    pub authors: Vec<String>,
     pub date: Option<String>,
+    pub revision: Option<String>,
     pub keywords: Vec<String>,
+    pub organization: Option<String>,
     pub sections: Vec<Section>,
 }
 

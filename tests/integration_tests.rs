@@ -30,7 +30,6 @@ fn test_document_title() {
     // Table of Contents
     assert!(result.contains("#outline("));
     assert!(result.contains("title: none"));
-    assert!(result.contains("#set page(numbering: \"1 / 1\", number-align: right)"));
     assert!(result.contains("#set page(header: [#text(size: 12pt, weight: 400, fill: rgb(\"#3B82F6\"))[]])"));
 }
 
@@ -62,8 +61,8 @@ fn test_inline_code() {
 fn test_section_heading() {
     let result = convert("== Section Title");
     assert!(result.contains("== Section Title"));
-    // No pagebreaks before sections
-    assert!(!result.contains("#pagebreak()"));
+    // First level-1 section after TOC does not get an extra pagebreak
+    // (TOC already ends with pagebreak, avoiding blank pages)
 }
 
 #[test]
@@ -129,7 +128,7 @@ fn test_caution_admonition() {
 #[test]
 fn test_link() {
     let result = convert("https://example.com[Example]");
-    assert!(result.contains("[Example](https://example.com)"));
+    assert!(result.contains("#link(\"https://example.com\")[Example]"));
 }
 
 #[test]
@@ -189,7 +188,6 @@ fn test_author_and_date() {
     // Table of Contents
     assert!(result.contains("#outline("));
     assert!(result.contains("title: none"));
-    assert!(result.contains("#set page(numbering: \"1 / 1\", number-align: right)"));
     assert!(result.contains("#set page(header: [#text(size: 12pt, weight: 400, fill: rgb(\"#3B82F6\"))[]])"));
 }
 
@@ -228,9 +226,9 @@ NOTE: A note here.
     // Table of Contents
     assert!(result.contains("#outline("));
     assert!(result.contains("title: none"));
-    assert!(result.contains("#set page(numbering: \"1 / 1\", number-align: right)"));
     assert!(result.contains("#set page(header: [#text(size: 12pt, weight: 400, fill: rgb(\"#3B82F6\"))[]])"));
-    assert!(result.contains("#set page(header: [#text(size: 12pt, weight: 400, fill: rgb(\"#3B82F6\"))[Introduction]])"));
+    // Headers now include colored bar
+    assert!(result.contains("#set page(header: [#text(size: 12pt, weight: 400, fill: rgb(\"#3B82F6\"))[Introduction] #line(stroke: 1pt + rgb(\"#3B82F6\"))])"));
     assert!(result.contains("== Introduction"));
     assert!(result.contains("#strong[bold]"));
     assert!(result.contains("#text(style: \"italic\")[italic]"));

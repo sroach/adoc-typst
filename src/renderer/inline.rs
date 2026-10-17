@@ -1,4 +1,5 @@
 use crate::ir::inline::Inline;
+use crate::renderer::util::decode_html_entities;
 
 /// Renders a list of inline elements to Typst syntax.
 pub fn render_inlines(inlines: &[Inline]) -> String {
@@ -24,31 +25,6 @@ fn escape_typst_code(code: &str) -> String {
         }
     }
     result
-}
-
-/// Decode common HTML entities that may appear in text content.
-fn decode_html_entities(text: &str) -> String {
-    text.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&#39;", "'")
-        .replace("&#8217;", "\u{2019}")  // right single quotation mark
-        .replace("&#8216;", "\u{2018}")  // left single quotation mark
-        .replace("&#8220;", "\u{201C}")  // left double quotation mark
-        .replace("&#8221;", "\u{201D}")  // right double quotation mark
-        .replace("&#8211;", "\u{2013}")  // en dash
-        .replace("&#8212;", "\u{2014}")  // em dash
-        .replace("&#8230;", "\u{2026}")  // horizontal ellipsis
-        .replace("&#8203;", "\u{200B}")  // zero-width space
-        .replace("&#8482;", "™")          // trademark
-        .replace("&#8242;", "\u{2032}")  // prime
-        .replace("&#x20ac;", "€")         // euro sign
-        .replace("&nbsp;", "\u{00A0}")   // non-breaking space
-        .replace("&ndash;", "\u{2013}")  // en dash
-        .replace("&mdash;", "\u{2014}")  // em dash
-        .replace("&hellip;", "\u{2026}") // horizontal ellipsis
 }
 
 fn render_inline(inline: &Inline) -> String {
@@ -78,9 +54,16 @@ fn render_inline(inline: &Inline) -> String {
             format!("={}=", escaped)
         }
         Inline::Link { text, url } => {
-            // Escape @ in link text to prevent Typst label reference
+            // Use Typst's #link() function: #link("url")[display text]
+            // URLs must be quoted strings so special chars like & don't break parsing
+            // Decode HTML entities in URL (e.g., &amp; → &)
+            let decoded_url = decode_html_entities(url);
             let escaped_text = text.replace('@', "\\@");
-            format!("[{}]({})", escaped_text, url)
+            if *text == *url {
+                format!("#link(\"{}\")[(\"{}\")]", decoded_url, decoded_url)
+            } else {
+                format!("#link(\"{}\")[{}]", decoded_url, escaped_text)
+            }
         }
         Inline::Mark(children) => {
             let inner = render_inlines(children);
@@ -161,7 +144,26 @@ mod tests {
             text: String::from("Example"),
             url: String::from("https://example.com"),
         };
-        assert_eq!(render_inline(&inline), "[Example](https://example.com)");
+        assert_eq!(render_inline(&inline), "#link(\"https://example.com\")[Example]");
+    }
+
+    #[test]
+    fn test_render_link_inline_text_equals_url() {
+        let url = String::from("https://example.com");
+        let inline = Inline::Link {
+            text: url.clone(),
+            url: url.clone(),
+        };
+        assert_eq!(render_inline(&inline), "#link(\"https://example.com\")[(\"https://example.com\")]");
+    }
+
+    #[test]
+    fn test_render_link_decodes_html_entities_in_url() {
+        let inline = Inline::Link {
+            text: String::from("YouTube"),
+            url: String::from("https://www.youtube.com/watch?v=abc&amp;list=xyz"),
+        };
+        assert_eq!(render_inline(&inline), "#link(\"https://www.youtube.com/watch?v=abc&list=xyz\")[YouTube]");
     }
 
     #[test]

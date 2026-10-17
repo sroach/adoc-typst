@@ -8,7 +8,26 @@ use crate::ir::inline::Inline;
 
 /// Converts the asciidoc-parser Document to our intermediate representation.
 pub fn convert(ast: &AstDocument<'_>) -> Document {
-    let title = ast.doctitle().map(|s| s.to_string());
+    // Extract main title without subtitle
+    let title = ast.header().main_title().map(|s| s.to_string());
+
+    // Extract subtitle using the parser's subtitle() method
+    let subtitle = ast.subtitle().map(|s| s.to_string());
+
+    // Extract ALL authors
+    let authors: Vec<String> = ast.authors().iter().map(|a| a.name().to_string()).collect();
+
+    // Extract revision version
+    let revision = match ast.attribute_value("revnumber") {
+        asciidoc_parser::document::InterpretedValue::Value(v) => Some(v.to_string()),
+        _ => None,
+    };
+
+    // Extract organization
+    let organization = match ast.attribute_value("organization") {
+        asciidoc_parser::document::InterpretedValue::Value(v) => Some(v.to_string()),
+        _ => None,
+    };
 
     let mut sections: Vec<Section> = Vec::new();
 
@@ -64,8 +83,6 @@ pub fn convert(ast: &AstDocument<'_>) -> Document {
         }
     }
 
-    let author = ast.authors().first().map(|a| a.name().to_string());
-
     let date = match ast.attribute_value("revdate") {
         asciidoc_parser::document::InterpretedValue::Value(v) => Some(v),
         _ => match ast.attribute_value("date") {
@@ -85,9 +102,12 @@ pub fn convert(ast: &AstDocument<'_>) -> Document {
 
     Document {
         title,
-        author,
+        subtitle,
+        authors,
         date,
+        revision,
         keywords,
+        organization,
         sections,
     }
 }
@@ -458,7 +478,32 @@ mod tests {
     #[test]
     fn test_convert_document_with_author() {
         let doc = convert_adoc("= Title\nAuthor Name");
-        assert_eq!(doc.author, Some(String::from("Author Name")));
+        assert_eq!(doc.authors, vec![String::from("Author Name")]);
+    }
+
+    #[test]
+    fn test_convert_document_with_multiple_authors() {
+        let doc = convert_adoc("= Title\nAuthor One; Author Two");
+        assert_eq!(doc.authors, vec![String::from("Author One"), String::from("Author Two")]);
+    }
+
+    #[test]
+    fn test_convert_document_with_subtitle() {
+        let doc = convert_adoc("= Title: Subtitle");
+        assert_eq!(doc.title, Some(String::from("Title")));
+        assert_eq!(doc.subtitle, Some(String::from("Subtitle")));
+    }
+
+    #[test]
+    fn test_convert_document_with_revision() {
+        let doc = convert_adoc("= Title\nAuthor\nv1.0, 2024-01-01");
+        assert_eq!(doc.revision, Some(String::from("1.0")));
+    }
+
+    #[test]
+    fn test_convert_document_with_organization() {
+        let doc = convert_adoc("= Title\n:organization: My Company\nAuthor");
+        assert_eq!(doc.organization, Some(String::from("My Company")));
     }
 
     #[test]

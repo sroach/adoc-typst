@@ -1,6 +1,6 @@
 [package]
 name = "adoc-typst"
-version = "0.1.0"
+version = "0.1.5"
 edition = "2024"
 
 [[bin]]
@@ -10,10 +10,8 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
-thiserror = "1"
 asciidoc-parser = "0.31.2"
-reqwest = { version = "0.12", features = ["gzip", "blocking"] }
+reqwest = { version = "0.13.5", features = ["gzip", "blocking"] }
 flate2 = "1"
-base64 = "0.22"
-tokio = { version = "1", features = ["full"] }
+base64 = "0.23.1"
 chrono = "0.4"
