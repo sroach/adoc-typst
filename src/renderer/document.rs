@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::Datelike;
 
 use crate::ir::blocks::Block;
@@ -37,6 +39,8 @@ fn format_date_readable(date: &str) -> Option<String> {
 
 /// Renders the IR document to Typst syntax.
 pub fn render_document(doc: &Document, pdf_standard: Option<&str>, lang: &str) -> String {
+    let mut rendered_footnotes = HashSet::new();
+
     let mut output = String::new();
 
     // Render PDF metadata using #set document(...)
@@ -113,8 +117,9 @@ pub fn render_document(doc: &Document, pdf_standard: Option<&str>, lang: &str) -
         }
         // Subtitle (smaller, separate line)
         if let Some(subtitle) = &doc.subtitle {
+            let clean = strip_html_tags(&decode_html_entities(subtitle));
             output.push_str("  #v(12pt)\n");
-            output.push_str(&format!("  #text(size: 20pt, fill: rgb(\"#6B7280\"))[{}]\n", subtitle));
+            output.push_str(&format!("  #text(size: 20pt, fill: rgb(\"#6B7280\"))[{}]\n", clean));
         }
         // Authors (all of them)
         if !doc.authors.is_empty() {
@@ -225,7 +230,11 @@ pub fn render_document(doc: &Document, pdf_standard: Option<&str>, lang: &str) -
             // Render the abstract content blocks
             let pdf_ua = pdf_standard.is_some();
             for block in &section.content {
-                output.push_str(&crate::renderer::blocks::render_block(block, pdf_ua));
+                output.push_str(&crate::renderer::blocks::render_block_with_footnotes(
+                    block,
+                    pdf_ua,
+                    &mut rendered_footnotes,
+                ));
             }
             // Don't add pagebreak after preface - let content flow naturally
             continue;
@@ -247,13 +256,23 @@ pub fn render_document(doc: &Document, pdf_standard: Option<&str>, lang: &str) -
         }
         // Adjust skip_first_section_title for preamble-skipped sections
         let adjusted_idx = if has_preamble { idx.saturating_sub(1) } else { idx };
-        output.push_str(&render_section(section, adjusted_idx == 0 && skip_first_section_title, pdf_standard));
+        output.push_str(&render_section(
+            section,
+            adjusted_idx == 0 && skip_first_section_title,
+            pdf_standard,
+            &mut rendered_footnotes,
+        ));
     }
 
     output
 }
 
-fn render_section(section: &Section, skip_title: bool, pdf_standard: Option<&str>) -> String {
+fn render_section(
+    section: &Section,
+    skip_title: bool,
+    pdf_standard: Option<&str>,
+    rendered_footnotes: &mut HashSet<String>,
+) -> String {
     let mut output = String::new();
     if !skip_title {
         let clean = strip_html_tags(&decode_html_entities(&section.title));
@@ -277,7 +296,11 @@ fn render_section(section: &Section, skip_title: bool, pdf_standard: Option<&str
 
     let pdf_ua = pdf_standard.is_some();
     for block in &section.content {
-        output.push_str(&crate::renderer::blocks::render_block(block, pdf_ua));
+        output.push_str(&crate::renderer::blocks::render_block_with_footnotes(
+            block,
+            pdf_ua,
+            rendered_footnotes,
+        ));
     }
 
     output
@@ -422,7 +445,7 @@ mod tests {
             title: String::from("Section"),
             content: vec![],
         };
-        let result = render_section(&section, false, None);
+        let result = render_section(&section, false, None, &mut HashSet::new());
         assert!(result.contains("== Section"));
     }
 
@@ -433,7 +456,7 @@ mod tests {
             title: String::from("Subsection"),
             content: vec![],
         };
-        let result = render_section(&section, false, None);
+        let result = render_section(&section, false, None, &mut HashSet::new());
         assert!(result.contains("=== Subsection"));
     }
 
@@ -444,7 +467,7 @@ mod tests {
             title: String::from("Section"),
             content: vec![Block::Paragraph(vec![Inline::Text(String::from("Content"))])],
         };
-        let result = render_section(&section, false, None);
+        let result = render_section(&section, false, None, &mut HashSet::new());
         assert!(result.contains("Content"));
     }
 
@@ -455,7 +478,7 @@ mod tests {
             title: String::from("Section"),
             content: vec![Block::Paragraph(vec![Inline::Text(String::from("Content"))])],
         };
-        let result = render_section(&section, true, None);
+        let result = render_section(&section, true, None, &mut HashSet::new());
         assert!(!result.contains("== Section"));
         assert!(result.contains("Content"));
     }
@@ -541,6 +564,7 @@ mod tests {
                 content: vec![Block::UnorderedList(vec![ListItem {
                     content: vec![Inline::Text(String::from("Item 1"))],
                     children: vec![],
+                    blocks: vec![],
                 }])],
             }],
         };

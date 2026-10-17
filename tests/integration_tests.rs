@@ -128,7 +128,7 @@ fn test_caution_admonition() {
 #[test]
 fn test_link() {
     let result = convert("https://example.com[Example]");
-    assert!(result.contains("#link(\"https://example.com\")[Example]"));
+    assert!(result.contains("#link(\"https://example.com\")[#text(fill: blue)[Example]]"));
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn test_image() {
 #[test]
 fn test_table() {
     let result = convert("|===\n|Header\n|===\n");
-    assert!(result.contains("#table(columns:"));
+    assert!(result.contains("#table("));
 }
 
 #[test]

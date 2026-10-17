@@ -54,6 +54,11 @@ fn main() -> Result<()> {
     let pdf_standard = cli.pdf_standard.as_deref();
     let output = renderer::document::render_document(&ir_doc, pdf_standard, &cli.lang);
 
+    // Write icon SVG files next to the output file so Typst can resolve them
+    if let Some(parent) = Path::new(&cli.output).parent() {
+        renderer::icons::write_icons_to_dir(parent)?;
+    }
+
     // Write output file
     match fs::write(&cli.output, &output) {
         Ok(_) => {}

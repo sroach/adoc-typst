@@ -262,7 +262,12 @@ fn convert_block(block: &AstBlock<'_>) -> Option<Block> {
                     row.cells().iter().map(|cell| convert_cell(cell)).collect()
                 })
                 .collect();
-            Some(Block::Table { headers, rows })
+            let col_widths: Vec<usize> = table_block
+                .columns()
+                .iter()
+                .map(|col| col.width())
+                .collect();
+            Some(Block::Table { headers, rows, col_widths })
         }
         AstBlock::Media(media) => {
             let path = media.resolved_target().to_string();
@@ -297,6 +302,7 @@ fn convert_block_with_section(block: &AstBlock<'_>) -> Option<Block> {
 fn convert_list_item(item: &asciidoc_parser::blocks::ListItem<'_>) -> Option<ListItem> {
     let mut inlines: Vec<Inline> = Vec::new();
     let mut children: Vec<ListItem> = Vec::new();
+    let mut blocks: Vec<Block> = Vec::new();
 
     for block in item.child_blocks() {
         match block {
@@ -315,6 +321,7 @@ fn convert_list_item(item: &asciidoc_parser::blocks::ListItem<'_>) -> Option<Lis
                             children.push(ListItem {
                                 content: child_inlines,
                                 children: Vec::new(),
+                                blocks: Vec::new(),
                             });
                         }
                     }
@@ -335,11 +342,16 @@ fn convert_list_item(item: &asciidoc_parser::blocks::ListItem<'_>) -> Option<Lis
                     children.push(sub);
                 }
             }
-            _ => {}
+            _ => {
+                // Handle attached blocks (admonitions, code blocks, etc.)
+                if let Some(converted) = convert_block(&block) {
+                    blocks.push(converted);
+                }
+            }
         }
     }
 
-    Some(ListItem { content: inlines, children })
+    Some(ListItem { content: inlines, children, blocks })
 }
 
 fn convert_inline(node: &InlineNode<'_>) -> Vec<Inline> {

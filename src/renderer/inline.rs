@@ -1,11 +1,22 @@
+use std::collections::HashSet;
+
 use crate::ir::inline::Inline;
 use crate::renderer::util::decode_html_entities;
 
 /// Renders a list of inline elements to Typst syntax.
 pub fn render_inlines(inlines: &[Inline]) -> String {
+    let mut rendered = HashSet::new();
+    render_inlines_with_footnotes(inlines, &mut rendered)
+}
+
+/// Renders a list of inline elements to Typst syntax, with footnote deduplication.
+pub fn render_inlines_with_footnotes(
+    inlines: &[Inline],
+    rendered_footnotes: &mut HashSet<String>,
+) -> String {
     let mut output = String::new();
     for inline in inlines {
-        output.push_str(&render_inline(inline));
+        output.push_str(&render_inline_with_footnotes(inline, rendered_footnotes));
     }
     output
 }
@@ -27,7 +38,16 @@ fn escape_typst_code(code: &str) -> String {
     result
 }
 
+#[cfg(test)]
 fn render_inline(inline: &Inline) -> String {
+    let mut rendered = HashSet::new();
+    render_inline_with_footnotes(inline, &mut rendered)
+}
+
+fn render_inline_with_footnotes(
+    inline: &Inline,
+    rendered_footnotes: &mut HashSet<String>,
+) -> String {
     match inline {
         Inline::Text(text) => {
             let decoded = decode_html_entities(text);
@@ -38,13 +58,13 @@ fn render_inline(inline: &Inline) -> String {
             escaped
         }
         Inline::Bold(children) => {
-            let inner = render_inlines(children);
+            let inner = render_inlines_with_footnotes(children, rendered_footnotes);
             // Use #strong[] instead of *...* because Typst delimiters require
             // word boundaries — *ul*timate fails but #strong[ul]timate works.
             format!("#strong[{}]", inner)
         }
         Inline::Italic(children) => {
-            let inner = render_inlines(children);
+            let inner = render_inlines_with_footnotes(children, rendered_footnotes);
             // Use #text(style: "italic")[] instead of _..._ because Typst delimiters
             // require word boundaries — _war_lock fails but #text(style: "italic")[war]lock works.
             format!("#text(style: \"italic\")[{}]", inner)
@@ -54,30 +74,54 @@ fn render_inline(inline: &Inline) -> String {
             format!("={}=", escaped)
         }
         Inline::Link { text, url } => {
-            // Use Typst's #link() function: #link("url")[display text]
+            // Use Typst's #link() function with blue color for links
             // URLs must be quoted strings so special chars like & don't break parsing
             // Decode HTML entities in URL (e.g., &amp; → &)
             let decoded_url = decode_html_entities(url);
             let escaped_text = text.replace('@', "\\@");
             if *text == *url {
-                format!("#link(\"{}\")[(\"{}\")]", decoded_url, decoded_url)
+                format!(
+                    "#link(\"{}\")[#text(fill: blue)[({})]]",
+                    decoded_url, decoded_url
+                )
             } else {
-                format!("#link(\"{}\")[{}]", decoded_url, escaped_text)
+                format!(
+                    "#link(\"{}\")[#text(fill: blue)[{}]]",
+                    decoded_url, escaped_text
+                )
             }
         }
         Inline::Mark(children) => {
-            let inner = render_inlines(children);
+            let inner = render_inlines_with_footnotes(children, rendered_footnotes);
             format!("#highlight[{}]", inner)
         }
         Inline::Superscript(children) => {
-            let inner = render_inlines(children);
+            let inner = render_inlines_with_footnotes(children, rendered_footnotes);
             format!("#super[{}]", inner)
         }
         Inline::Subscript(children) => {
-            let inner = render_inlines(children);
+            let inner = render_inlines_with_footnotes(children, rendered_footnotes);
             format!("#sub[{}]", inner)
         }
-        Inline::Footnote { text, .. } => {
+        Inline::Footnote { id, text } => {
+            // Deduplicate footnotes by text content.
+            // First occurrence: render with a label.
+            // Subsequent occurrences: render as @label cross-reference.
+            // If text is just a number (footnote reference back), treat as cross-reference.
+            let is_reference = text.chars().all(|c| c.is_ascii_digit());
+            if is_reference || rendered_footnotes.contains(text.as_str()) {
+                // Footnote reference or already rendered — use cross-reference
+                if let Some(id_val) = id {
+                    return format!("@fn-{}", id_val);
+                }
+                // No id — use counter-based label
+                return format!("@fn-{}", rendered_footnotes.len());
+            }
+            // First occurrence — render with label
+            rendered_footnotes.insert(text.clone());
+            if let Some(id_val) = id {
+                return format!("#footnote[{}] <fn-{}>", text, id_val);
+            }
             format!("#footnote[{}]", text)
         }
         Inline::LineBreak => {
@@ -144,7 +188,10 @@ mod tests {
             text: String::from("Example"),
             url: String::from("https://example.com"),
         };
-        assert_eq!(render_inline(&inline), "#link(\"https://example.com\")[Example]");
+        assert_eq!(
+            render_inline(&inline),
+            "#link(\"https://example.com\")[#text(fill: blue)[Example]]"
+        );
     }
 
     #[test]
@@ -154,7 +201,10 @@ mod tests {
             text: url.clone(),
             url: url.clone(),
         };
-        assert_eq!(render_inline(&inline), "#link(\"https://example.com\")[(\"https://example.com\")]");
+        assert_eq!(
+            render_inline(&inline),
+            "#link(\"https://example.com\")[#text(fill: blue)[(https://example.com)]]"
+        );
     }
 
     #[test]
@@ -163,7 +213,10 @@ mod tests {
             text: String::from("YouTube"),
             url: String::from("https://www.youtube.com/watch?v=abc&amp;list=xyz"),
         };
-        assert_eq!(render_inline(&inline), "#link(\"https://www.youtube.com/watch?v=abc&list=xyz\")[YouTube]");
+        assert_eq!(
+            render_inline(&inline),
+            "#link(\"https://www.youtube.com/watch?v=abc&list=xyz\")[#text(fill: blue)[YouTube]]"
+        );
     }
 
     #[test]
@@ -190,7 +243,31 @@ mod tests {
             id: Some(String::from("fn1")),
             text: String::from("Note text"),
         };
-        assert_eq!(render_inline(&inline), "#footnote[Note text]");
+        let mut rendered = HashSet::new();
+        // First occurrence renders with label
+        assert_eq!(
+            render_inline_with_footnotes(&inline, &mut rendered),
+            "#footnote[Note text] <fn-fn1>"
+        );
+    }
+
+    #[test]
+    fn test_render_footnote_dedup() {
+        let inline1 = Inline::Footnote {
+            id: Some(String::from("fn1")),
+            text: String::from("Note text"),
+        };
+        let inline2 = Inline::Footnote {
+            id: Some(String::from("fn1")),
+            text: String::from("Note text"),
+        };
+        let mut rendered = HashSet::new();
+        // First occurrence renders with label
+        let result1 = render_inline_with_footnotes(&inline1, &mut rendered);
+        assert_eq!(result1, "#footnote[Note text] <fn-fn1>");
+        // Second occurrence renders as cross-reference
+        let result2 = render_inline_with_footnotes(&inline2, &mut rendered);
+        assert_eq!(result2, "@fn-fn1");
     }
 
     #[test]

@@ -1,17 +1,29 @@
+use std::collections::HashSet;
+
 use crate::ir::blocks::{AdmonitionLevel, Block, ListItem};
 use crate::renderer::util::decode_html_entities;
 
 /// Renders a block to Typst syntax.
 pub fn render_block(block: &Block, pdf_ua: bool) -> String {
+    let mut rendered = HashSet::new();
+    render_block_with_footnotes(block, pdf_ua, &mut rendered)
+}
+
+/// Renders a block to Typst syntax with optional footnote deduplication.
+pub fn render_block_with_footnotes(
+    block: &Block,
+    pdf_ua: bool,
+    rendered_footnotes: &mut HashSet<String>,
+) -> String {
     match block {
         Block::Paragraph(inlines) => {
-            let text = super::inline::render_inlines(inlines);
+            let text = super::inline::render_inlines_with_footnotes(inlines, rendered_footnotes);
             format!("{}\n\n", text)
         }
         Block::OrderedList(items) => {
             let mut output = String::new();
             for item in items {
-                output.push_str(&render_list_item(item, true, 0));
+                output.push_str(&render_list_item(item, true, 0, rendered_footnotes));
             }
             output.push_str("\n");
             output
@@ -19,7 +31,7 @@ pub fn render_block(block: &Block, pdf_ua: bool) -> String {
         Block::UnorderedList(items) => {
             let mut output = String::new();
             for item in items {
-                output.push_str(&render_list_item(item, false, 0));
+                output.push_str(&render_list_item(item, false, 0, rendered_footnotes));
             }
             output.push_str("\n");
             output
@@ -40,7 +52,7 @@ pub fn render_block(block: &Block, pdf_ua: bool) -> String {
         Block::QuoteBlock { content, attribution, citation } => {
             let mut output = String::new();
             for block in content {
-                let rendered = render_block(block, pdf_ua);
+                let rendered = render_block_with_footnotes(block, pdf_ua, rendered_footnotes);
                 for line in rendered.lines() {
                     output.push_str(&format!("> {}\n", line));
                 }
@@ -61,22 +73,22 @@ pub fn render_block(block: &Block, pdf_ua: bool) -> String {
             output
         }
         Block::Admonition { level, content } => {
-            let (label, icon) = match level {
-                AdmonitionLevel::Note => ("Note", "📝"),
-                AdmonitionLevel::Tip => ("Tip", "💡"),
-                AdmonitionLevel::Important => ("Important", "❗"),
-                AdmonitionLevel::Warning => ("Warning", "⚠️"),
-                AdmonitionLevel::Caution => ("Caution", "⚠️"),
+            let (label, icon_file) = match level {
+                AdmonitionLevel::Note => ("Note", "icon-note.svg"),
+                AdmonitionLevel::Tip => ("Tip", "icon-tip.svg"),
+                AdmonitionLevel::Important => ("Important", "icon-important.svg"),
+                AdmonitionLevel::Warning => ("Warning", "icon-warning.svg"),
+                AdmonitionLevel::Caution => ("Caution", "icon-caution.svg"),
             };
             let mut output = String::new();
-            output.push_str(&format!("[#text(size: 1.1em)[#strong[{} {}]]]\n", icon, label));
+            output.push_str(&format!("[#text(size: 1.1em)[#strong[#box(height: 1em)[#image(\"{}\", width: 1em, height: 1em)] {}]]]\n", icon_file, label));
             for block in content {
-                output.push_str(&render_block(block, pdf_ua));
+                output.push_str(&render_block_with_footnotes(block, pdf_ua, rendered_footnotes));
             }
             output.push_str("\n");
             output
         }
-        Block::Table { headers, rows } => {
+        Block::Table { headers, rows, col_widths } => {
             let mut output = String::new();
             let num_cols = if !headers.is_empty() {
                 headers.len()
@@ -88,28 +100,48 @@ pub fn render_block(block: &Block, pdf_ua: bool) -> String {
             if num_cols == 0 {
                 return String::new();
             }
-            output.push_str(&format!("#table(columns: {},\n", num_cols));
+
+            // Build column width spec
+            let columns_spec = if col_widths.is_empty() {
+                format!("columns: {}", num_cols)
+            } else {
+                let fr_specs: Vec<String> = col_widths.iter().map(|w| format!("{}fr", w)).collect();
+                format!("columns: ({})", fr_specs.join(", "))
+            };
+
+            // Table styling: grid lines, header row fill via function
+            output.push_str(&format!(
+                "#table(\n  {},\n  stroke: 0.5pt,\n  fill: (x, y) => if y == 0 {{ rgb(\"#3B82F6\") }} else {{ none }},\n",
+                columns_spec
+            ));
+
             if !headers.is_empty() {
+                let header_cells: Vec<String> = headers
+                    .iter()
+                    .map(|cell| {
+                        format!(
+                            "[#text(fill: white, weight: \"bold\")[{}]]",
+                            super::inline::render_inlines_with_footnotes(cell, rendered_footnotes)
+                        )
+                    })
+                    .collect();
                 if pdf_ua {
                     // PDF/UA requires table.header() for proper PDF tagging
-                    // Note: no # prefix — we're already inside #table() code context
-                    let header_cells: Vec<String> = headers
-                        .iter()
-                        .map(|cell| format!("[{}]", super::inline::render_inlines(cell)))
-                        .collect();
-                    output.push_str(&format!("  table.header({}),\n", header_cells.join(", ")));
+                    output.push_str(&format!(
+                        "  table.header({}),\n",
+                        header_cells.join(", ")
+                    ));
                 } else {
-                    let header_cells: Vec<String> = headers
-                        .iter()
-                        .map(|cell| format!("[{}]", super::inline::render_inlines(cell)))
-                        .collect();
-                    output.push_str(&format!("  {},\n", header_cells.join(", ")));
+                    output.push_str(&format!(
+                        "  table.header({}),\n",
+                        header_cells.join(", ")
+                    ));
                 }
             }
             for row in rows {
                 let cells: Vec<String> = row
                     .iter()
-                    .map(|cell| format!("[{}]", super::inline::render_inlines(cell)))
+                    .map(|cell| format!("[{}]", super::inline::render_inlines_with_footnotes(cell, rendered_footnotes)))
                     .collect();
                 output.push_str(&format!("  {},\n", cells.join(", ")));
             }
@@ -164,7 +196,7 @@ pub fn render_block(block: &Block, pdf_ua: bool) -> String {
             let clean_title = strip_html_tags(&decode_html_entities(&nested.title));
             output.push_str(&format!("{} {}\n\n", prefix, clean_title));
             for block in &nested.content {
-                output.push_str(&render_block(block, pdf_ua));
+                output.push_str(&render_block_with_footnotes(block, pdf_ua, rendered_footnotes));
             }
             output.push_str("\n");
             output
@@ -190,13 +222,22 @@ fn strip_html_tags(input: &str) -> String {
     result
 }
 
-fn render_list_item(item: &ListItem, ordered: bool, indent: usize) -> String {
+fn render_list_item(
+    item: &ListItem,
+    ordered: bool,
+    indent: usize,
+    rendered_footnotes: &mut HashSet<String>,
+) -> String {
     let prefix = if ordered { "+ " } else { "- " };
-    let text = super::inline::render_inlines(&item.content);
+    let text = super::inline::render_inlines_with_footnotes(&item.content, rendered_footnotes);
     let indent_str = "  ".repeat(indent);
     let mut output = format!("{}{}{}\n", indent_str, prefix, text);
     for child in &item.children {
-        output.push_str(&render_list_item(child, ordered, indent + 1));
+        output.push_str(&render_list_item(child, ordered, indent + 1, rendered_footnotes));
+    }
+    // Render attached blocks (admonitions, code blocks, etc.)
+    for block in &item.blocks {
+        output.push_str(&render_block_with_footnotes(block, false, rendered_footnotes));
     }
     output
 }
@@ -218,10 +259,12 @@ mod tests {
             ListItem {
                 content: vec![Inline::Text(String::from("First"))],
                 children: vec![],
+                blocks: vec![],
             },
             ListItem {
                 content: vec![Inline::Text(String::from("Second"))],
                 children: vec![],
+                blocks: vec![],
             },
         ];
         let block = Block::UnorderedList(items);
@@ -235,6 +278,7 @@ mod tests {
         let items = vec![ListItem {
             content: vec![Inline::Text(String::from("First"))],
             children: vec![],
+            blocks: vec![],
         }];
         let block = Block::OrderedList(items);
         let result = render_block(&block, false);
@@ -307,7 +351,7 @@ mod tests {
         };
         let result = render_block(&block, false);
         assert!(result.contains("Note"));
-        assert!(result.contains("📝"));
+        assert!(result.contains("icon-note.svg"));
     }
 
     #[test]
@@ -318,7 +362,7 @@ mod tests {
         };
         let result = render_block(&block, false);
         assert!(result.contains("Tip"));
-        assert!(result.contains("💡"));
+        assert!(result.contains("icon-tip.svg"));
     }
 
     #[test]
@@ -342,13 +386,37 @@ mod tests {
                 vec![Inline::Text(String::from("Alice"))],
                 vec![Inline::Text(String::from("30"))],
             ]],
+            col_widths: vec![],
         };
         let result = render_block(&block, false);
-        assert!(result.contains("#table(columns: 2,"));
+        assert!(result.contains("#table("));
+        assert!(result.contains("columns: 2"));
         assert!(result.contains("[Name]"));
         assert!(result.contains("[Age]"));
         assert!(result.contains("[Alice]"));
         assert!(result.contains("[30]"));
+        // Verify header styling
+        assert!(result.contains("rgb(\"#3B82F6\")"));
+        assert!(result.contains("stroke: 0.5pt"));
+    }
+
+    #[test]
+    fn test_render_table_with_column_widths() {
+        let block = Block::Table {
+            headers: vec![
+                vec![Inline::Text(String::from("A"))],
+                vec![Inline::Text(String::from("B"))],
+                vec![Inline::Text(String::from("C"))],
+            ],
+            rows: vec![vec![
+                vec![Inline::Text(String::from("1"))],
+                vec![Inline::Text(String::from("2"))],
+                vec![Inline::Text(String::from("3"))],
+            ]],
+            col_widths: vec![3, 2, 4],
+        };
+        let result = render_block(&block, false);
+        assert!(result.contains("columns: (3fr, 2fr, 4fr)"));
     }
 
     #[test]
@@ -382,9 +450,11 @@ mod tests {
             children: vec![ListItem {
                 content: vec![Inline::Text(String::from("Child"))],
                 children: vec![],
+                blocks: vec![],
             }],
+            blocks: vec![],
         };
-        let result = render_list_item(&item, false, 0);
+        let result = render_list_item(&item, false, 0, &mut HashSet::new());
         assert!(result.contains("- Parent"));
         assert!(result.contains("  - Child"));
     }
